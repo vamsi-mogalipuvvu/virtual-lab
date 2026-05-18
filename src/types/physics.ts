@@ -12,6 +12,12 @@ export interface PhysicsObject {
   color?: string;
   label?: string;
   placementState?: PlacementState;
+  angle?: number;
+  velocity?: { x: number; y: number };
+  angularVelocity?: number;
+  mass?: number;
+  friction?: number;
+  restitution?: number;
 }
 
 export interface PhysicsConstraint {

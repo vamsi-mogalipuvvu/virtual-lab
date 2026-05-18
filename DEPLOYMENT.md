@@ -141,26 +141,24 @@ Create a `.env` file for production:
 ```env
 # Frontend
 VITE_SOCKET_URL=https://your-server-domain.com
+VITE_API_URL=https://your-server-domain.com
 
 # Backend
 PORT=3001
+MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/virtual-lab
 ```
 
-## MongoDB Integration (Future Enhancement)
+## MongoDB Experiment Storage
 
-If you want to add persistent storage:
+Saved experiments use the REST API in `server/index.js` and persist to MongoDB when `MONGODB_URI` is configured.
 
-1. Set up MongoDB Atlas account
+1. Set up a MongoDB Atlas cluster or a local MongoDB database.
 
-2. Add MongoDB connection to `server/index.js`:
-   ```javascript
-   const mongoose = require('mongoose');
-   mongoose.connect(process.env.MONGODB_URI);
-   ```
+2. Add `MONGODB_URI` to your backend environment.
 
-3. Create experiment schema and save/load endpoints
+3. Set `VITE_API_URL` to the deployed backend origin.
 
-4. Update frontend to use API endpoints instead of localStorage
+If `MONGODB_URI` is missing, the backend falls back to temporary memory storage for development.
 
 ## Docker Deployment
 

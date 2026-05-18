@@ -2,6 +2,8 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import mongoose from 'mongoose';
+import 'dotenv/config';
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +16,130 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST']
   }
+});
+
+const mongoUri = process.env.MONGODB_URI;
+let isMongoConnected = false;
+
+const experimentSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true, index: true },
+  name: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  objects: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  constraints: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  thumbnail: { type: String },
+  createdAt: { type: Date, default: Date.now }
+}, {
+  versionKey: false
+});
+
+const Experiment = mongoose.model('Experiment', experimentSchema);
+const memoryExperiments = [];
+
+const connectMongo = async () => {
+  if (!mongoUri) {
+    console.warn('MONGODB_URI is not set. Saved experiments will use temporary memory storage.');
+    return;
+  }
+
+  try {
+    await mongoose.connect(mongoUri);
+    isMongoConnected = true;
+    console.log('MongoDB connected for experiment persistence');
+  } catch (error) {
+    isMongoConnected = false;
+    console.error('MongoDB connection failed. Falling back to temporary memory storage.');
+    console.error(error.message);
+  }
+};
+
+connectMongo();
+
+mongoose.connection.on('disconnected', () => {
+  isMongoConnected = false;
+  if (mongoUri) {
+    console.warn('MongoDB disconnected. Experiment API will use temporary memory storage until it reconnects.');
+  }
+});
+
+mongoose.connection.on('connected', () => {
+  isMongoConnected = true;
+});
+
+const normalizeExperiment = (experiment) => ({
+  id: experiment.id,
+  name: experiment.name,
+  description: experiment.description || '',
+  objects: Array.isArray(experiment.objects) ? experiment.objects : [],
+  constraints: Array.isArray(experiment.constraints) ? experiment.constraints : [],
+  thumbnail: experiment.thumbnail,
+  createdAt: experiment.createdAt ? new Date(experiment.createdAt) : new Date()
+});
+
+app.get('/api/experiments', async (_req, res) => {
+  try {
+    if (isMongoConnected) {
+      const experiments = await Experiment.find({}, { _id: 0 }).sort({ createdAt: -1 }).lean();
+      return res.json(experiments);
+    }
+
+    return res.json([...memoryExperiments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+  } catch (error) {
+    console.error('Failed to load experiments:', error);
+    return res.status(500).json({ error: 'Failed to load experiments' });
+  }
+});
+
+app.post('/api/experiments', async (req, res) => {
+  try {
+    const experiment = normalizeExperiment(req.body);
+    if (!experiment.id || !experiment.name.trim()) {
+      return res.status(400).json({ error: 'Experiment id and name are required' });
+    }
+
+    if (isMongoConnected) {
+      const saved = await Experiment.findOneAndUpdate(
+        { id: experiment.id },
+        experiment,
+        { new: true, upsert: true, projection: { _id: 0 } }
+      ).lean();
+      return res.status(201).json(saved);
+    }
+
+    const existingIndex = memoryExperiments.findIndex((item) => item.id === experiment.id);
+    if (existingIndex >= 0) {
+      memoryExperiments[existingIndex] = experiment;
+    } else {
+      memoryExperiments.unshift(experiment);
+    }
+    return res.status(201).json(experiment);
+  } catch (error) {
+    console.error('Failed to save experiment:', error);
+    return res.status(500).json({ error: 'Failed to save experiment' });
+  }
+});
+
+app.delete('/api/experiments/:id', async (req, res) => {
+  try {
+    if (isMongoConnected) {
+      await Experiment.deleteOne({ id: req.params.id });
+    } else {
+      const index = memoryExperiments.findIndex((item) => item.id === req.params.id);
+      if (index >= 0) memoryExperiments.splice(index, 1);
+    }
+
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Failed to delete experiment:', error);
+    return res.status(500).json({ error: 'Failed to delete experiment' });
+  }
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    persistence: isMongoConnected ? 'mongodb' : 'memory'
+  });
 });
 
 // Store active rooms and their states

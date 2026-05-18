@@ -1,192 +1,195 @@
-# VIRTUAL-LAB - Collaborative Physics Sandbox
+# VIRTUAL-LAB
+VIRTUAL-LAB is a browser-based 2D physics simulation platform for creating, running, analyzing, and collaborating on mechanics experiments such as springs, ropes, pivots, collisions, forces, and velocity plots.
 
-A real-time, collaborative 2D physics simulation platform for teaching complex physics and engineering concepts online. Built with React, Matter.js, and Socket.io.
+---
 
-## Features
+## How to Run This Project
+Follow these steps from scratch after downloading or cloning the project.
 
-### 🎯 Interactive Physics Canvas
-- Drag and drop physics objects (boxes, circles, ground)
-- Real-time physics simulation using Matter.js
-- Visual feedback and interaction
-
-### 🔗 Physics Constraints System
-- **Rope**: Flexible connection between objects
-- **Spring**: Elastic connection with customizable stiffness
-- **Pivot**: Fixed rotation point connection
-- Multi-step constraint creation workflow
-
-### 📊 Real-Time Analytics Dashboard
-- Live velocity tracking
-- Kinetic and potential energy monitoring
-- Total energy conservation visualization
-- Interactive line charts using Recharts
-- Position and angle readouts
-
-### 💾 Experiment Library
-- Save and load custom physics scenarios
-- Pre-configured templates:
-  - Simple Pendulum
-  - Bridge Structure
-  - Spring Catapult
-- Browse and manage saved experiments
-
-### 👥 Multi-User Collaboration
-- Real-time WebSocket synchronization
-- Room-based collaboration
-- User presence indicators
-- Synchronized object creation across users
-
-### 🎮 Simulation Controls
-- Play/Pause simulation
-- Reset to initial state
-- Clear workspace
-- Object selection and analytics
-
-## Tech Stack
-
-**Frontend:**
-- React.js with TypeScript
-- Matter.js (2D physics engine)
-- Tailwind CSS (styling)
-- Recharts (data visualization)
-- Socket.io-client (real-time communication)
-- Lucide React (icons)
-
-**Backend:**
+### 1. Install Requirements
+Install these tools first:
 - Node.js
-- Express.js
-- Socket.io (WebSocket server)
+- npm
+- Git
 
-## Getting Started
+Check that they are installed:
+```bash
+node --version
+npm --version
+git --version
+```
 
-### Prerequisites
-- Node.js (v16 or higher)
-- npm or yarn
+If these commands show version numbers, the system is ready.
 
-### Installation
+### 2. Get the Project Files
+If you are using GitHub, clone the repository:
+```bash
+git clone https://github.com/your-username/virtual-lab.git
+cd virtual-lab
+```
 
-1. Install dependencies:
+If you downloaded the project as a ZIP file, extract it first. Then open a terminal inside the extracted project folder.
+
+The terminal should be inside the folder that contains `package.json`.
+
+### 3. Install Project Dependencies
+Run:
 ```bash
 npm install
 ```
 
-2. Start the development server:
+This installs React, Vite, Matter.js, Socket.IO, Express, MongoDB dependencies, and all other required packages.
+
+### 4. Configure MongoDB for Saved Experiments
+Create a `.env` file in the project root folder:
+```env
+VITE_SOCKET_URL=http://localhost:3001
+VITE_API_URL=http://localhost:3001
+MONGODB_URI=mongodb://127.0.0.1:27017/virtual-lab
+```
+
+Use a MongoDB Atlas connection string instead of the local URI if you are using Atlas.
+
+MongoDB is only required for permanent saved experiments. If `MONGODB_URI` is not configured, the backend still runs, but saved experiments use temporary memory storage.
+
+### 5. Start the Frontend
+In the project folder, run:
 ```bash
 npm run dev
 ```
 
-3. (Optional) Start the WebSocket server for multiplayer:
+The frontend starts with Vite. Open the URL shown in the terminal, usually:
+```text
+http://localhost:5173
+```
+
+### 6. Start the Backend for Collaboration and Saving
+Open a second terminal in the same project folder and run:
 ```bash
 node server/index.js
 ```
 
-4. Open your browser to `http://localhost:5173`
+The backend starts the Express API and Socket.IO collaboration server at:
+```text
+http://localhost:3001
+```
 
-## Usage Guide
+### 7. Use the App
+Keep both terminals running:
+- Terminal 1: frontend with `npm run dev`
+- Terminal 2: backend with `node server/index.js`
 
-### Adding Objects
-1. Click on **Box**, **Circle**, or **Ground** buttons in the toolbar
-2. A semi-transparent preview appears and follows your cursor
-3. Move your mouse to position the object precisely
-4. **Right-click** to finalize placement and enable physics
-5. Press **ESC** to cancel placement if needed
-6. After placement, click and drag objects to move them around
+Then use the browser app to create simulations, save experiments, load experiments, and join collaboration rooms.
 
-### Creating Constraints
-1. Click on **Rope**, **Spring**, or **Pivot** button
-2. Click on the first object to connect
-3. Click on the second object to complete the connection
-4. The constraint will appear between the two objects
-
-### Viewing Analytics
-1. Click on any object in the simulation
-2. The analytics dashboard will appear on the right
-3. View real-time metrics:
-   - Velocity
-   - Kinetic Energy
-   - Potential Energy
-   - Position and Angle
-
-### Saving Experiments
-1. Click the **Save** button
-2. Enter a name and description
-3. Your experiment is saved to the library
-
-### Loading Experiments
-1. Click the **Load** button
-2. Browse available experiments
-3. Click **Load Experiment** on any template
-
-### Multiplayer Mode
-1. Click the **Room** button
-2. Choose **Create Room** or **Join Room**
-3. Enter your name
-4. Share the Room ID with collaborators
-5. Work together in real-time!
+---
 
 ## Project Structure
-
+```text
+VIRTUAL-LAB/
+|-- src/
+|   |-- components/        React UI components
+|   |-- hooks/             Physics and WebSocket hooks
+|   |-- physics/           Engine, bodies, constraints, forces
+|   |-- types/             TypeScript type definitions
+|   |-- utils/             Helper utilities
+|   |-- App.tsx            Main application component
+|   |-- main.tsx           React entry point
+|   `-- index.css          Global styles
+|-- server/
+|   `-- index.js           Express and Socket.IO backend
+|-- index.html             HTML entry file
+|-- package.json           Scripts and dependencies
+|-- package-lock.json      Exact dependency versions
+|-- tsconfig.json          TypeScript configuration
+|-- vite.config.ts         Vite configuration
+|-- .env.example           Example environment file
+|-- .gitignore             Git ignored files
+`-- README.md              Project documentation
 ```
-virtual-lab/
-├── src/
-│   ├── components/
-│   │   ├── Toolbar.tsx              # Main toolbar with controls
-│   │   ├── PhysicsCanvas.tsx        # Canvas component
-│   │   ├── AnalyticsDashboard.tsx   # Real-time analytics
-│   │   ├── ExperimentLibrary.tsx    # Save/load interface
-│   │   └── RoomManager.tsx          # Multiplayer room UI
-│   ├── hooks/
-│   │   ├── usePhysics.ts            # Matter.js integration
-│   │   └── useWebSocket.ts          # Socket.io client
-│   ├── types/
-│   │   └── physics.ts               # TypeScript definitions
-│   ├── App.tsx                      # Main application
-│   └── main.tsx                     # Entry point
-├── server/
-│   └── index.js                     # WebSocket server
-└── public/                          # Static assets
+
+---
+
+## Complete Project Explanation
+
+### 1. Application Start
+The app starts from `src/main.tsx`. This file loads React and renders the main `App.tsx` component into the browser.
+
+### 2. Main App File
+`src/App.tsx` connects the toolbar, canvas, side panel, room manager, experiment library, velocity plotting modal, and physics hook.
+
+### 3. Physics System
+The main simulation logic is inside `src/hooks/usePhysics2.ts`. It manages bodies, constraints, selected objects, play/pause state, replay snapshots, and velocity plot data.
+
+### 4. Physics Engine
+`src/physics/engine.ts` creates the Matter.js engine. Matter.js handles rigid-body motion, collision detection, collision response, and constraint solving.
+
+### 5. Simulation Loop
+`src/physics/world.ts` runs the engine using a fixed timestep. This keeps physics updates stable and consistent.
+
+### 6. Creating Objects
+When the user clicks Box, Circle, or Ground, the app creates a preview object. After placement, it becomes a real Matter.js body.
+
+### 7. Body Factory
+`src/physics/bodies/factory.ts` converts project objects into Matter.js bodies with shape, size, mass, friction, restitution, static state, and render properties.
+
+### 8. Creating Constraints
+Ropes, springs, and pivots connect two bodies. The user selects objects on the canvas, and the project creates a constraint between them.
+
+### 9. Constraint Factory
+`src/physics/constraints/factory.ts` creates rope, spring, and pivot constraints. It stores rope length, max tension, spring natural length, spring constant, and damping.
+
+### 10. Spring Motion
+Springs follow Hooke's law:
+```text
+F = -k(x - L0)
+```
+This allows horizontal or vertical simple harmonic motion when damping is zero.
+
+### 11. Rope Motion
+Ropes pull when stretched but do not push when slack. The project can also calculate and display rope tension.
+
+### 12. Forces and Gravity
+The simulation supports gravity, mass, friction, restitution, external force, velocity control, and air resistance. These values are edited from the right-side panel.
+
+### 13. Collisions
+Matter.js detects collisions between bodies. Restitution controls bounce, and friction controls resistance during contact.
+
+### 14. Play and Pause
+When Start is clicked, bodies move and simulation time begins. When Pause is clicked, the simulation stops and properties can be inspected or edited.
+
+### 15. Replay System
+During simulation, the app records positions, velocities, angles, and angular velocities. The replay slider can scrub through saved states.
+
+### 16. Velocity Plotting
+From Start until Pause, the app records each body's time, velocity magnitude, `Vx`, `Vy`, angular velocity, and acceleration. After pausing, velocity plots can be opened.
+
+### 17. Real-Time Collaboration
+`server/index.js` runs an Express and Socket.IO server. Users can join rooms, create objects, create constraints, and receive live updates.
+
+### 18. Saving Experiments
+Saved experiments are stored through backend API endpoints in `server/index.js`:
+```text
+GET    /api/experiments
+POST   /api/experiments
+DELETE /api/experiments/:id
+```
+When `MONGODB_URI` is configured, experiments are saved in MongoDB. If it is missing, the backend uses temporary memory storage for development only.
+
+### 19. WebSocket Communication
+`src/hooks/useWebSocket.ts` sends and receives room events, object events, constraint events, and physics updates between frontend and backend.
+
+### 20. Data Flow
+```text
+User action -> React UI -> usePhysics hook -> Matter.js engine -> Canvas output
+Local user -> Socket.IO client -> Socket.IO server -> Other users
+Save experiment -> REST API -> MongoDB
 ```
 
-## Physics Concepts Demonstrated
+### 21. Main Purpose
+VIRTUAL-LAB helps users understand mechanics by building experiments, running simulations, observing motion, editing physical properties, and analyzing graphs.
 
-- **Conservation of Energy**: Total energy remains constant in isolated systems
-- **Kinetic vs Potential Energy**: Energy transformation during motion
-- **Elastic Collisions**: Objects bounce realistically
-- **Structural Mechanics**: Bridge and connection stability
-- **Simple Harmonic Motion**: Pendulum and spring oscillations
-- **Force and Acceleration**: Newton's laws in action
+---
 
-## Educational Use Cases
-
-1. **Pendulum Experiments**: Study period, amplitude, and energy transfer
-2. **Projectile Motion**: Analyze trajectories and landing points
-3. **Structural Engineering**: Test bridge designs and failure points
-4. **Spring Mechanics**: Explore Hooke's law and oscillations
-5. **Collision Analysis**: Study momentum conservation
-6. **Machine Design**: Build complex mechanisms with multiple constraints
-
-## Future Enhancements
-
-- [ ] MongoDB integration for cloud storage
-- [ ] More object types (polygons, custom shapes)
-- [ ] Motor constraints with controllable speed
-- [ ] Force vector visualization
-- [ ] Slow-motion and replay features
-- [ ] Export simulation data
-- [ ] Mobile touch support
-- [ ] Collaborative annotations
-- [ ] Assignment submission system
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT License - feel free to use this for educational purposes.
-
-## Acknowledgments
-
-- Matter.js for the excellent physics engine
-- Recharts for beautiful data visualization
-- Socket.io for seamless real-time communication
+## Author
+**Vamsi Krishna**  
+B.Tech ECE, IIT Guwahati

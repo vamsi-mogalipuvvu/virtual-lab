@@ -365,7 +365,7 @@ virtual-lab/
 ## Future Roadmap
 
 ### Phase 2 (Planned)
-- [ ] MongoDB integration
+- [x] MongoDB experiment save/load
 - [ ] User authentication
 - [ ] Cloud save/sync
 - [ ] Assignment system

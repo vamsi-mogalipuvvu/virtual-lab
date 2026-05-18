@@ -11,8 +11,11 @@ import WelcomeScreen from './components/WelcomeScreen';
 import PhysicsDebug from './components/PhysicsDebug';
 import SpringPreview from './components/SpringPreview';
 import PhysicsCanvas from './components/PhysicsCanvas';
+import VelocityPlotsModal from './components/VelocityPlotsModal';
 import { PhysicsObject, PhysicsConstraint, Experiment } from './types/physics';
+import { VelocityPlotData } from './types/velocityPlot';
 import { WORLD_PIXELS_PER_METER } from './physics/constants';
+import { saveExperiment } from './utils/experimentsApi';
 import { v4 as uuidv4 } from 'uuid';
 
 type ActiveTool = 'box' | 'circle' | 'ground' | 'pivot' | 'rope' | 'spring' | null;
@@ -49,6 +52,7 @@ function App() {
     selectedConstraintId,
     getAnalytics,
     getAllBodies,
+    getExperimentSnapshot,
     getBodyDetails,
     updateBodyMass,
     updateBodySurfaceProperties,
@@ -81,6 +85,8 @@ function App() {
     replayMax,
     replayTime,
     setReplayIndex,
+    velocityPlotState,
+    getVelocityPlotData,
     playbackSpeed,
     setPlaybackSpeed,
     showAllVelocities,
@@ -112,6 +118,8 @@ function App() {
   const [showLibrary, setShowLibrary] = useState(false);
   const [showRoom, setShowRoom] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showVelocityPlots, setShowVelocityPlots] = useState(false);
+  const [velocityPlotData, setVelocityPlotData] = useState<VelocityPlotData | null>(null);
   const [showWelcome, setShowWelcome] = useState(true);
   const [libraryMode, setLibraryMode] = useState<'save' | 'load'>('load');
   const [currentExperiment, setCurrentExperiment] = useState<Experiment | null>(null);
@@ -291,29 +299,19 @@ function App() {
     setCurrentExperiment(null);
   };
 
-  const handleSave = (name: string, description: string) => {
-    const bodies = getAllBodies();
+  const handleSave = async (name: string, description: string) => {
+    const snapshot = getExperimentSnapshot();
     const experiment: Experiment = {
       id: uuidv4(),
       name,
       description,
-      objects: bodies.map(b => ({
-        id: b.id,
-        type: 'box',
-        x: b.position.x,
-        y: b.position.y,
-        label: b.label
-      })),
-      constraints: [],
+      objects: snapshot.objects,
+      constraints: snapshot.constraints,
       createdAt: new Date()
     };
 
-    const saved = localStorage.getItem('virtual-lab-experiments');
-    const experiments = saved ? JSON.parse(saved) : [];
-    experiments.push(experiment);
-    localStorage.setItem('virtual-lab-experiments', JSON.stringify(experiments));
-    
-    setCurrentExperiment(experiment);
+    const savedExperiment = await saveExperiment(experiment);
+    setCurrentExperiment(savedExperiment);
   };
 
   const handleLoad = (experiment: Experiment) => {
@@ -357,6 +355,11 @@ function App() {
   const handleStart = () => {
     setIsPlaying(true);
     startSimulation();
+  };
+
+  const handleShowVelocityPlots = () => {
+    setVelocityPlotData(getVelocityPlotData());
+    setShowVelocityPlots(true);
   };
 
   const handleGravityChange = (value: 9.8 | 10) => {
@@ -810,7 +813,7 @@ function App() {
         bodyA: bodyALabel,
         bodyB: bodyBLabel,
         stiffness: constraintType === 'spring' ? 0.05 : 0.7,
-        damping: constraintType === 'spring' ? 0.1 : undefined
+        damping: constraintType === 'spring' ? 0 : undefined
       };
 
       console.log(`🔗 Creating ${constraintType}: ${bodyALabel} → ${bodyBLabel} (drag length: ${dragLength.toFixed(1)})`);
@@ -1122,6 +1125,14 @@ function App() {
                   className="mt-1 w-full"
                 />
               </label>
+              {!isPlaying && velocityPlotState.hasData && (
+                <button
+                  onClick={handleShowVelocityPlots}
+                  className="mt-3 w-full border border-black px-3 py-2 text-xs hover:bg-gray-100"
+                >
+                  Show Velocity Plots of Bodies
+                </button>
+              )}
             </div>
 
             <div className="p-4 border-t border-gray-200 space-y-2">
@@ -1518,6 +1529,14 @@ function App() {
         constraints={constraints}
         engine={engine}
       />
+
+      {velocityPlotData && (
+        <VelocityPlotsModal
+          isOpen={showVelocityPlots}
+          onClose={() => setShowVelocityPlots(false)}
+          data={velocityPlotData}
+        />
+      )}
     </div>
   );
 }

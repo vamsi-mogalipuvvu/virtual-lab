@@ -13,7 +13,7 @@ export const createRigidBody = (obj: PhysicsObject): Matter.Body | null => {
     isStatic: !!obj.isStatic,
     friction: 0,
     frictionStatic: 0,
-    frictionAir: 0.01,
+    frictionAir: 0,
     restitution: 0,
     density: material.density * KG_M2_TO_MATTER_DENSITY,
     slop: 0.05

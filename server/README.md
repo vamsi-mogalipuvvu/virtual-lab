@@ -16,10 +16,21 @@ The server will start on port 3001 by default.
 - Real-time object synchronization
 - User presence tracking
 - Physics state broadcasting
+- MongoDB-backed experiment save/load API
 
 ## Environment Variables
 
 - `PORT`: Server port (default: 3001)
+- `MONGODB_URI`: MongoDB connection string for saved experiments
+
+If `MONGODB_URI` is not set, saved experiments use temporary memory storage and disappear when the server restarts.
+
+## REST API
+
+- `GET /api/experiments`: List saved experiments
+- `POST /api/experiments`: Save an experiment
+- `DELETE /api/experiments/:id`: Delete a saved experiment
+- `GET /api/health`: Check server and persistence status
 
 ## API Events
 
@@ -57,4 +68,5 @@ The server will start on port 3001 by default.
 
 - Rooms are automatically cleaned up when empty
 - Each user gets a random color for identification
-- State is only synchronized while users are connected (no persistence)
+- Room state is only synchronized while users are connected
+- Saved experiments persist in MongoDB when `MONGODB_URI` is configured

@@ -9,7 +9,8 @@ import {
   speedMpsToWorldVelocity,
   worldVelocityToMps
 } from '../physics/utilities/forces';
-import { PhysicsObject, PhysicsConstraint } from '../types/physics';
+import { PhysicsObject, PhysicsConstraint, Experiment } from '../types/physics';
+import { BodyVelocitySeries, VelocityPlotData, VelocityPlotState } from '../types/velocityPlot';
 import { createPhysicsEngine, setWorldGravity } from '../physics/engine';
 import { createFixedStepLoop } from '../physics/world';
 import { createRigidBody, applyMassKg } from '../physics/bodies/factory';
@@ -41,6 +42,8 @@ const SPRING_REST_SPEED_MPS = 0.012;
 const SPRING_REST_ACCEL_MPS2 = 0.08;
 const MAX_UNDO_SNAPSHOTS = 80;
 const MAX_REPLAY_SNAPSHOTS = 600;
+const MAX_VELOCITY_SAMPLES_PER_BODY = 60000;
+const VELOCITY_SAMPLE_TRIM_BATCH = 1000;
 
 type VariableMode = 't' | 'x' | 'x_t';
 type ForceType = 'constant' | 'timed' | 'variable';
@@ -188,6 +191,12 @@ interface ReplaySnapshot {
   }>;
 }
 
+interface MutableBodyVelocitySeries extends BodyVelocitySeries {
+  lastVx?: number;
+  lastVy?: number;
+  lastTime?: number;
+}
+
 export interface PhysicsOptions {
   onSyncState?: (updates: RemoteUpdate[]) => void;
 }
@@ -235,6 +244,10 @@ export const usePhysics = (
   const undoStackRef = useRef<WorldSnapshot[]>([]);
   const redoStackRef = useRef<WorldSnapshot[]>([]);
   const replaySnapshotsRef = useRef<ReplaySnapshot[]>([]);
+  const velocityPlotDataRef = useRef<Map<string, MutableBodyVelocitySeries>>(new Map());
+  const velocityPlotStartedAtRef = useRef(0);
+  const velocityPlotSampleCountRef = useRef(0);
+  const isVelocityRecordingRef = useRef(false);
   const replayIndexRef = useRef(0);
   const suppressHistoryRef = useRef(false);
   const dragHistorySnapshotRef = useRef<WorldSnapshot | null>(null);
@@ -242,6 +255,12 @@ export const usePhysics = (
   const showAllForcesRef = useRef(false);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [replayState, setReplayState] = useState({ index: 0, max: 0, time: 0 });
+  const [velocityPlotState, setVelocityPlotState] = useState<VelocityPlotState>({
+    hasData: false,
+    isRecording: false,
+    revision: 0,
+    sampleCount: 0
+  });
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
   const [overlayState, setOverlayState] = useState({ showAllVelocities: false, showAllForces: false });
   const [, setPhysicsConfigRevision] = useState(0);
@@ -453,7 +472,7 @@ export const usePhysics = (
         springConfigRef.current.set(constraintSnapshot.id, {
           naturalLength: constraintSnapshot.length,
           springConstant: constraintSnapshot.springConstant ?? 40,
-          dampingRatio: constraintSnapshot.dampingRatio ?? 0.85
+          dampingRatio: constraintSnapshot.dampingRatio ?? 0
         });
       }
 
@@ -521,6 +540,116 @@ export const usePhysics = (
       max,
       time: snapshot?.time ?? simulationTimeRef.current
     });
+  };
+
+  const clearVelocityRecordingData = () => {
+    velocityPlotDataRef.current.clear();
+    velocityPlotStartedAtRef.current = simulationTimeRef.current;
+    velocityPlotSampleCountRef.current = 0;
+    isVelocityRecordingRef.current = false;
+    setVelocityPlotState((prev) => ({
+      hasData: false,
+      isRecording: false,
+      revision: prev.revision + 1,
+      sampleCount: 0
+    }));
+  };
+
+  const beginVelocityRecording = () => {
+    velocityPlotDataRef.current.clear();
+    velocityPlotStartedAtRef.current = simulationTimeRef.current;
+    velocityPlotSampleCountRef.current = 0;
+    isVelocityRecordingRef.current = true;
+    setVelocityPlotState((prev) => ({
+      hasData: false,
+      isRecording: true,
+      revision: prev.revision + 1,
+      sampleCount: 0
+    }));
+  };
+
+  const finishVelocityRecording = () => {
+    isVelocityRecordingRef.current = false;
+    const sampleCount = velocityPlotSampleCountRef.current;
+    setVelocityPlotState((prev) => ({
+      hasData: sampleCount > 0,
+      isRecording: false,
+      revision: prev.revision + 1,
+      sampleCount
+    }));
+  };
+
+  const recordVelocitySamples = (time: number) => {
+    if (!isVelocityRecordingRef.current || !engineRef.current) return;
+
+    const bodySamples = velocityPlotDataRef.current;
+    let recordedThisStep = 0;
+
+    Matter.Composite.allBodies(engineRef.current.world).forEach((body) => {
+      if (body.label === 'Mouse Constraint') return;
+
+      const id = getBodyConfigKey(body);
+      const velocityMps = worldVelocityToMps(body.velocity);
+      const existing = bodySamples.get(id);
+      const dt = existing?.lastTime !== undefined
+        ? Math.max(1e-9, time - existing.lastTime)
+        : STEP_SECONDS;
+      const ax = existing?.lastVx !== undefined ? (velocityMps.x - existing.lastVx) / dt : 0;
+      const ay = existing?.lastVy !== undefined ? (velocityMps.y - existing.lastVy) / dt : 0;
+      const series = existing ?? {
+        id,
+        label: body.label || id,
+        samples: []
+      };
+
+      series.label = body.label || id;
+      series.samples.push({
+        time,
+        velocity: Math.hypot(velocityMps.x, velocityMps.y),
+        vx: velocityMps.x,
+        vy: velocityMps.y,
+        angularVelocity: body.angularVelocity / STEP_SECONDS,
+        ax,
+        ay,
+        acceleration: Math.hypot(ax, ay)
+      });
+      series.lastVx = velocityMps.x;
+      series.lastVy = velocityMps.y;
+      series.lastTime = time;
+
+      if (series.samples.length > MAX_VELOCITY_SAMPLES_PER_BODY) {
+        series.samples.splice(0, VELOCITY_SAMPLE_TRIM_BATCH);
+      }
+
+      bodySamples.set(id, series);
+      recordedThisStep += 1;
+    });
+
+    velocityPlotSampleCountRef.current += recordedThisStep;
+  };
+
+  const getVelocityPlotData = (): VelocityPlotData => {
+    const bodies = Array.from(velocityPlotDataRef.current.values())
+      .map(({ id, label, samples }) => ({
+        id,
+        label,
+        samples: samples.map((sample) => ({ ...sample }))
+      }))
+      .filter((series) => series.samples.length > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    const endedAt = bodies.reduce((latest, series) => {
+      const last = series.samples[series.samples.length - 1];
+      return last ? Math.max(latest, last.time) : latest;
+    }, velocityPlotStartedAtRef.current);
+
+    return {
+      startedAt: velocityPlotStartedAtRef.current,
+      endedAt,
+      sampleInterval: STEP_SECONDS,
+      totalSamples: velocityPlotSampleCountRef.current,
+      bodies
+    };
   };
 
   const recordReplaySnapshot = () => {
@@ -1358,6 +1487,7 @@ export const usePhysics = (
       });
 
       const springNetForces = new Map<number, { body: Matter.Body; fx: number; fy: number }>();
+      const undampedSpringBodyIds = new Set<number>();
       const externalDebugForces = createDebugForceVectorMap();
       const internalDebugForces = createDebugForceVectorMap();
 
@@ -1365,6 +1495,10 @@ export const usePhysics = (
       constraintsRef.current.forEach((constraint, id) => {
         const springCfg = springConfigRef.current.get(id);
         if (!springCfg || !constraint.bodyA || !constraint.bodyB) return;
+        if (springCfg.dampingRatio <= 0) {
+          undampedSpringBodyIds.add(constraint.bodyA.id);
+          undampedSpringBodyIds.add(constraint.bodyB.id);
+        }
 
         const netForce = applySpringForce(
           constraint.bodyA,
@@ -1466,6 +1600,7 @@ export const usePhysics = (
       internalDebugForcesRef.current = internalDebugForces;
 
       springNetForces.forEach(({ body, fx, fy }) => {
+        if (undampedSpringBodyIds.has(body.id)) return;
         const forceConfig = forceConfigRef.current.get(getBodyConfigKey(body));
         const velocityConfig = velocityConfigRef.current.get(getBodyConfigKey(body));
         if (forceConfig?.enabled || velocityConfig?.enabled) return;
@@ -1527,6 +1662,7 @@ export const usePhysics = (
       applyHorizontalFriction();
       resolveRopeConstraints();
       recordReplaySnapshot();
+      recordVelocitySamples(simulationTimeRef.current);
     };
 
     Matter.Events.on(engine, 'collisionStart', handleCollisionStart);
@@ -1653,14 +1789,32 @@ export const usePhysics = (
         y: (event.clientY - rect.top) * (render.canvas.height / rect.height)
       };
       const clickedBody = Matter.Query.point(Array.from(bodiesRef.current.values()), point)[0];
-      if (!clickedBody) return;
+      if (clickedBody) {
+        const bodyEntry = Array.from(bodiesRef.current.entries()).find(([_, body]) => body.id === clickedBody.id);
+        if (!bodyEntry) return;
 
-      const bodyEntry = Array.from(bodiesRef.current.entries()).find(([_, body]) => body.id === clickedBody.id);
-      if (!bodyEntry) return;
+        setSelectedBody(bodyEntry[0]);
+        setSelectedBodyLabel(clickedBody.label);
+        setSelectedConstraintId(null);
+        return;
+      }
 
-      setSelectedBody(bodyEntry[0]);
-      setSelectedBodyLabel(clickedBody.label);
-      setSelectedConstraintId(null);
+      let bestId: string | null = null;
+      let bestDist = 24;
+      constraintsRef.current.forEach((constraint, id) => {
+        if (!constraint.bodyA || !constraint.bodyB) return;
+        const start = getWorldConstraintPoint(constraint.bodyA, constraint.pointA);
+        const end = getWorldConstraintPoint(constraint.bodyB, constraint.pointB);
+        const d = distanceToSegment(point.x, point.y, start.x, start.y, end.x, end.y);
+        if (d < bestDist) {
+          bestDist = d;
+          bestId = id;
+        }
+      });
+
+      setSelectedBody(null);
+      setSelectedBodyLabel(null);
+      setSelectedConstraintId(bestId);
     };
 
     render.canvas.addEventListener('mousedown', handlePausedCanvasMouseDown);
@@ -1782,6 +1936,25 @@ export const usePhysics = (
     (body as any).appBodyWidth = obj.width;
     (body as any).appBodyHeight = obj.height;
     (body as any).appBodyRadius = obj.radius;
+    if (Number.isFinite(obj.angle)) {
+      Matter.Body.setAngle(body, obj.angle ?? 0);
+    }
+    if (obj.velocity) {
+      Matter.Body.setVelocity(body, obj.velocity);
+    }
+    if (Number.isFinite(obj.angularVelocity)) {
+      Matter.Body.setAngularVelocity(body, obj.angularVelocity ?? 0);
+    }
+    if (!body.isStatic && Number.isFinite(obj.mass) && (obj.mass ?? 0) > 0) {
+      applyMassKg(body, obj.mass ?? 1);
+      massOverridesRef.current.set(getBodyConfigKey(body), obj.mass ?? 1);
+    }
+    if (Number.isFinite(obj.friction)) {
+      (body as any).physicalFriction = obj.friction;
+    }
+    if (Number.isFinite(obj.restitution)) {
+      (body as any).physicalRestitution = obj.restitution;
+    }
 
     return body;
   }, [canvasRef]);
@@ -2101,6 +2274,7 @@ export const usePhysics = (
     simulationTimeRef.current = 0;
     replaySnapshotsRef.current = [];
     replayIndexRef.current = 0;
+    clearVelocityRecordingData();
     refreshReplayState();
     setBodies(emptyBodies);
     setConstraints(emptyConstraints);
@@ -2139,6 +2313,46 @@ export const usePhysics = (
     }));
   };
 
+  const getExperimentSnapshot = (): Pick<Experiment, 'objects' | 'constraints'> => {
+    const snapshot = captureWorldSnapshot();
+    const labelById = new Map(snapshot.bodies.map((body) => [body.id, body.label]));
+
+    return {
+      objects: snapshot.bodies.map((body) => ({
+        id: body.id,
+        type: body.type,
+        x: body.x,
+        y: body.y,
+        width: body.width,
+        height: body.height,
+        radius: body.radius,
+        isStatic: body.isStatic,
+        color: body.color,
+        label: body.label,
+        angle: body.angle,
+        velocity: body.velocity,
+        angularVelocity: body.angularVelocity,
+        mass: body.mass,
+        friction: body.physicalFriction,
+        restitution: body.physicalRestitution
+      })),
+      constraints: snapshot.constraints.map((constraint) => ({
+        id: constraint.id,
+        type: constraint.type,
+        bodyA: labelById.get(constraint.bodyAId) ?? constraint.bodyAId,
+        bodyB: labelById.get(constraint.bodyBId) ?? constraint.bodyBId,
+        pointA: constraint.pointA,
+        pointB: constraint.pointB,
+        length: constraint.restLength ?? constraint.length,
+        stiffness: constraint.stiffness,
+        damping: constraint.damping,
+        naturalLength: constraint.type === 'spring' ? constraint.length : undefined,
+        springConstant: constraint.springConstant,
+        maxTension: constraint.maxTension
+      }))
+    };
+  };
+
   const resizeViewport = (width: number, height: number) => {
     if (!renderRef.current) return;
     const render = renderRef.current;
@@ -2163,6 +2377,7 @@ export const usePhysics = (
     isPausedRef.current = true;
     setWorldGravity(engineRef.current, 0);
     loopRef.current?.setPaused(true);
+    finishVelocityRecording();
 
     const allBodies = Matter.Composite.allBodies(engineRef.current.world);
     pausedDynamicLabelsRef.current.clear();
@@ -2186,6 +2401,7 @@ export const usePhysics = (
     }
     isPausedRef.current = false;
     simulationTimeRef.current = 0;
+    beginVelocityRecording();
     setWorldGravity(engineRef.current, gravityValueRef.current as 9.8 | 10);
     loopRef.current?.setPaused(false);
 
@@ -2203,6 +2419,7 @@ export const usePhysics = (
         }
       }
     });
+    recordVelocitySamples(0);
     pausedDynamicLabelsRef.current.clear();
     pausedDebugVelocityRef.current.clear();
   };
@@ -2369,7 +2586,7 @@ export const usePhysics = (
     const prev = springConfigRef.current.get(constraintId) ?? {
       naturalLength: constraint.length,
       springConstant: 40,
-      dampingRatio: 0.85
+      dampingRatio: 0
     };
     const next = {
       naturalLength: updates.naturalLength ?? prev.naturalLength,
@@ -2379,6 +2596,7 @@ export const usePhysics = (
     springConfigRef.current.set(constraintId, next);
     constraint.length = next.naturalLength;
     constraint.stiffness = 0;
+    setPhysicsConfigRevision((v) => v + 1);
   };
 
   const updateRopeProperties = (
@@ -2396,11 +2614,12 @@ export const usePhysics = (
       constraintConfigRef.current.set(constraintId, config);
     }
     
-    if (updates.maxTension !== undefined) {
+    if (Object.prototype.hasOwnProperty.call(updates, 'maxTension')) {
       const config = constraintConfigRef.current.get(constraintId) || { tension: 0 };
       config.maxTension = updates.maxTension;
       constraintConfigRef.current.set(constraintId, config);
     }
+    setPhysicsConfigRevision((v) => v + 1);
   };
 
   const updateRopeMaxTension = (constraintId: string, maxTension: number) => {
@@ -2408,6 +2627,7 @@ export const usePhysics = (
     const config = constraintConfigRef.current.get(constraintId) || { tension: 0 };
     config.maxTension = maxTension;
     constraintConfigRef.current.set(constraintId, config);
+    setPhysicsConfigRevision((v) => v + 1);
   };
 
   const getConstraintDetails = (constraintId: string) => {
@@ -2479,6 +2699,7 @@ export const usePhysics = (
     setSelectedBody,
     getAnalytics,
     getAllBodies,
+    getExperimentSnapshot,
     getBodyByLabel,
     setBodyStaticByLabel,
     selectedBodyLabel,
@@ -2515,6 +2736,8 @@ export const usePhysics = (
     replayMax: replayState.max,
     replayTime: replayState.time,
     setReplayIndex,
+    velocityPlotState,
+    getVelocityPlotData,
     playbackSpeed,
     setPlaybackSpeed,
     showAllVelocities: overlayState.showAllVelocities,

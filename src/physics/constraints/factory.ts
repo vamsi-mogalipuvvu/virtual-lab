@@ -140,7 +140,7 @@ export const createConstraint = (
     const attachmentLength = getAttachmentDistance(bodyA, pointA, bodyB, pointB);
     const naturalLength = input.naturalLength ?? input.length ?? attachmentLength;
     const springConstant = input.springConstant ?? 40;
-    const dampingRatio = Math.max(input.damping ?? 0.85, 0.85);
+    const dampingRatio = Math.max(input.damping ?? 0, 0);
 
     return {
       constraint: Matter.Constraint.create({
