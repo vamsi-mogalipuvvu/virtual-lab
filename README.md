@@ -190,6 +190,5 @@ VIRTUAL-LAB helps users understand mechanics by building experiments, running si
 
 ---
 
-## Author
-**Vamsi Krishna**  
-B.Tech ECE, IIT Guwahati
+
+
